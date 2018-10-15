@@ -6,6 +6,9 @@
 package textencoding
 
 import (
+	"encoding/binary"
+	"fmt"
+
 	"github.com/unidoc/unidoc/common"
 	"github.com/unidoc/unidoc/pdf/core"
 )
@@ -50,16 +53,41 @@ type TextEncoder interface {
 
 // Convenience functions
 
-// doEncode converts a Go unicode string `raw` to a PDF encoded string using the encoder `enc`.
-func doEncode(enc TextEncoder, raw string) []byte {
-	encoded := []byte{}
+// doEncode1 converts a Go unicode string `raw` to a PDF encoded string using the encoder `enc`.
+// It expects that character codes will fit into a single byte.
+func doEncode1(enc TextEncoder, raw string) []byte {
+	encoded := make([]byte, 0, len(raw))
 	for _, r := range raw {
 		code, found := enc.RuneToCharcode(r)
 		if !found {
 			common.Log.Debug("Failed to map rune to charcode for rune 0x%04x", r)
 			continue
 		}
+		if code > 0xff {
+			panic(fmt.Errorf("unexpected character code: %x", code))
+		}
 		encoded = append(encoded, byte(code))
+	}
+	return encoded
+}
+
+// doEncode2 converts a Go unicode string `raw` to a PDF encoded string using the encoder `enc`.
+// Each character will be encoded as two bytes.
+func doEncode2(enc TextEncoder, raw string) []byte {
+	// runes -> character codes -> bytes
+	runes := []rune(raw)
+	encoded := make([]byte, 0, len(runes)*2)
+	for _, r := range runes {
+		code, ok := enc.RuneToCharcode(r)
+		if !ok {
+			common.Log.Debug("Failed to map rune to charcode. rune=%+q", r)
+			continue
+		}
+
+		// Each entry represented by 2 bytes.
+		var v [2]byte
+		binary.BigEndian.PutUint16(v[:], code)
+		encoded = append(encoded, v[:]...)
 	}
 	return encoded
 }
